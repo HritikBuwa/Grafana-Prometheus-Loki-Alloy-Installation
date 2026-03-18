@@ -44,6 +44,192 @@ monitoring-stack/
 
 ---
 
+## 🛠️ Prerequisites — Install Required Tools
+
+Before anything else, make sure these tools are on your machine.
+
+### 1. Install kubectl
+kubectl is the command-line tool to talk to your Kubernetes cluster.
+
+```bash
+# Linux
+curl -LO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+
+# macOS (with Homebrew)
+brew install kubectl
+
+# Verify
+kubectl version --client
+```
+
+### 2. Install Helm
+Helm is the package manager for Kubernetes (like apt/brew but for K8s apps).
+
+```bash
+# Linux / macOS / WSL
+curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+chmod 700 get_helm.sh
+./get_helm.sh
+
+# Verify
+helm version
+```
+
+### 3. Install Docker
+Docker is required by both kind and minikube to run the cluster locally.
+
+```bash
+# Linux (Ubuntu/Debian)
+sudo apt-get update && sudo apt-get install -y docker.io
+sudo usermod -aG docker $USER   # lets you run docker without sudo
+newgrp docker                   # apply group change without logout
+
+# macOS
+# Download Docker Desktop from https://www.docker.com/products/docker-desktop
+
+# Verify
+docker --version
+```
+
+---
+
+## ☸️ Step 0 — Create Your Kubernetes Cluster
+
+Pick the platform you want to use and follow that section.
+**Skip this if you already have a running cluster.**
+
+---
+
+### Option A — kind (recommended for local dev)
+
+kind runs Kubernetes inside Docker containers. Fastest to set up.
+
+```bash
+# Install kind
+# Linux / WSL
+curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64
+chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
+
+# macOS
+brew install kind
+
+# Verify
+kind version
+```
+
+```bash
+# Create a cluster
+kind create cluster --name monitoring-demo
+
+# Check it's running
+kubectl cluster-info --context kind-monitoring-demo
+kubectl get nodes
+# Expected: one node showing Ready
+```
+
+```bash
+# When you're done (optional — deletes the whole cluster)
+kind delete cluster --name monitoring-demo
+```
+
+> ⚠️ **kind limitation:** Services are NOT reachable via browser directly.
+> Always use `./04-access/access.sh` (port-forwarding) to open dashboards.
+
+---
+
+### Option B — minikube (good for local dev with more features)
+
+minikube runs Kubernetes in a virtual machine or Docker on your laptop.
+
+```bash
+# Install minikube
+# Linux
+curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+sudo install minikube-linux-amd64 /usr/local/bin/minikube
+
+# macOS
+brew install minikube
+
+# Verify
+minikube version
+```
+
+```bash
+# Start a cluster (give it enough resources for the monitoring stack)
+minikube start --cpus=4 --memory=8192 --driver=docker
+
+# Check it's running
+kubectl get nodes
+# Expected: minikube node showing Ready
+```
+
+```bash
+# Useful minikube commands
+minikube status          # check if cluster is running
+minikube stop            # pause the cluster (keeps your data)
+minikube delete          # delete everything and start fresh
+minikube dashboard       # open Kubernetes dashboard in browser
+```
+
+> 💡 **minikube tip:** You can use `minikube service <service-name> -n monitoring`
+> instead of port-forwarding to open dashboards directly in your browser.
+
+---
+
+### Option C — EKS (Amazon Elastic Kubernetes Service)
+
+EKS is a managed Kubernetes cluster on AWS. Use this for staging/production.
+
+```bash
+# Install AWS CLI
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip && sudo ./aws/install
+
+# Configure AWS credentials
+aws configure
+# Enter: Access Key ID, Secret Access Key, Region (e.g. us-east-1), output format: json
+
+# Install eksctl (the easiest way to create EKS clusters)
+curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+sudo mv /tmp/eksctl /usr/local/bin
+
+# Verify
+aws --version
+eksctl version
+```
+
+```bash
+# Create an EKS cluster (takes ~15 minutes)
+eksctl create cluster \
+  --name monitoring-demo \
+  --region us-east-1 \
+  --nodegroup-name workers \
+  --node-type t3.medium \
+  --nodes 2 \
+  --nodes-min 1 \
+  --nodes-max 3 \
+  --managed
+
+# This automatically updates your kubeconfig
+# Verify
+kubectl get nodes
+# Expected: 2 nodes showing Ready
+```
+
+```bash
+# Delete the cluster when done (stops AWS charges)
+eksctl delete cluster --name monitoring-demo --region us-east-1
+```
+
+> ⚠️ **EKS costs money.** A 2-node `t3.medium` cluster costs roughly $0.10/hour.
+> Always delete when you're done to avoid unexpected charges.
+
+> 💡 **EKS tip:** Change `ClusterIP` to `LoadBalancer` in `02-prometheus-grafana/install.sh`
+> so services get public AWS URLs automatically — no port-forwarding needed.
+
+---
+
 ## ⚡ Quick Start (3 steps)
 
 ### Step 1 — Clone this repo
