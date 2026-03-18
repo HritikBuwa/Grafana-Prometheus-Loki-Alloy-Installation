@@ -1,0 +1,139 @@
+# ✅ Verify Everything Works
+
+Run these checks after `./setup.sh` completes to confirm the stack is healthy.
+
+---
+
+## Step 1 — Check all pods are Running
+
+```bash
+kubectl get pods -n monitoring
+```
+
+You should see output like this (all STATUS = Running):
+
+```
+NAME                                                      READY   STATUS    RESTARTS
+alertmanager-monitoring-stack-kube-prome-alertmanager-0   2/2     Running   0
+alloy-xxxxx                                               1/1     Running   0
+loki-0                                                    1/1     Running   0
+monitoring-stack-grafana-xxxxx                            3/3     Running   0
+monitoring-stack-kube-prome-operator-xxxxx                1/1     Running   0
+monitoring-stack-kube-prome-prometheus-0                  2/2     Running   0
+monitoring-stack-kube-state-metrics-xxxxx                 1/1     Running   0
+monitoring-stack-prometheus-node-exporter-xxxxx           1/1     Running   0
+```
+
+If any pod shows `CrashLoopBackOff` or `Error`, see [troubleshooting.md](troubleshooting.md).
+
+---
+
+## Step 2 — Check all services exist
+
+```bash
+kubectl get svc -n monitoring
+```
+
+You should see services for: grafana, prometheus, alertmanager, loki, alloy.
+
+---
+
+## Step 3 — Start port-forwards
+
+```bash
+./04-access/access.sh
+```
+
+---
+
+## Step 4 — Test Loki is ready
+
+With port-forwards running, open a new terminal and run:
+
+```bash
+curl http://localhost:3100/ready
+```
+
+Expected response: `ready`
+
+If you get a connection error, Loki may still be starting. Wait 30 seconds and try again.
+
+---
+
+## Step 5 — Test Prometheus is scraping metrics
+
+Open http://localhost:9090 and run this query in the search bar:
+
+```
+up
+```
+
+You should see a list of targets with value `1`. That means Prometheus is
+successfully scraping metrics from those targets.
+
+---
+
+## Step 6 — Open Grafana and explore logs
+
+1. Open http://localhost:3000
+2. Login: `admin` / `prom-operator`
+3. Click **Explore** in the left sidebar (compass icon)
+4. In the dropdown at the top, select **Loki**
+5. Enter this query and press **Shift+Enter**:
+
+```logql
+{namespace="monitoring"}
+```
+
+You should see log lines from your monitoring pods. This confirms:
+- ✅ Alloy is collecting logs from pods
+- ✅ Loki is storing them
+- ✅ Grafana can query Loki
+
+---
+
+## Useful LogQL Queries to Try
+
+```logql
+# All logs from monitoring namespace
+{namespace="monitoring"}
+
+# Logs from Loki itself
+{pod=~"loki.*"}
+
+# Logs containing the word "error"
+{namespace="monitoring"} |= "error"
+
+# Logs from Grafana container
+{container="grafana"}
+
+# Count errors per minute grouped by pod
+sum(rate({namespace="monitoring"} |= "error" [1m])) by (pod)
+```
+
+---
+
+## Check Alloy is shipping logs
+
+```bash
+# View Alloy logs — look for "level=info" and no errors
+kubectl logs -n monitoring -l app.kubernetes.io/name=alloy --tail=30
+```
+
+Healthy output looks like:
+```
+level=info ... msg="now listening for http traffic"
+level=info ... component=loki.write.local msg="Added new remote write..."
+```
+
+---
+
+## Check Loki received logs
+
+```bash
+curl -G "http://localhost:3100/loki/api/v1/labels"
+```
+
+This should return a list of label names like `namespace`, `pod`, `container`.
+If it returns an empty array `{"data":[]}`, Alloy hasn't shipped any logs yet —
+wait 30 more seconds and try again.
